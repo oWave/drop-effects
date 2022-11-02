@@ -24,6 +24,15 @@ Hooks.once("setup", () => {
     name: "Print effects on item roll",
     hint: "When enabled, rolling an item will print effects attached to it in chat",
   });
+
+  game.settings.register("drop-effects", "apply-self", {
+    default: true,
+    type: Boolean,
+    scope: "world",
+    config: true,
+    name: "Auto apply effects marked as apply to self",
+    hint: "Requires DAE. Enable 'Apply to self when item is rolled' in the effect config to auto apply",
+  });
 });
 
 Hooks.on("dropCanvasData", async (_canvas, data) => {
@@ -65,7 +74,20 @@ Hooks.on("dropCanvasData", async (_canvas, data) => {
 Hooks.on("dnd5e.useItem", async (item: any) => {
   if (!game.settings.get("drop-effects", "show-effects-on-item-roll")) return;
 
-  const effects: any[] = item.effects.filter((e) => !e.transfer);
+  let effects: any[] = item.effects.filter((e) => !e.transfer);
+
+  if (game.settings.get("drop-effects", "apply-self")) {
+    const selfEffects = effects.filter(
+      (e) => e.flags?.dae?.selfTargetAlways === true
+    );
+    effects = effects.filter((e) => e.flags?.dae?.selfTargetAlways !== true);
+
+    item.actor?.createEmbeddedDocuments(
+      "ActiveEffect",
+      selfEffects.map((e) => e.clone({ origin: null }))
+    );
+  }
+
   if (!effects.length) return;
 
   const msg = effects
@@ -73,7 +95,7 @@ Hooks.on("dnd5e.useItem", async (item: any) => {
     .join("");
 
   // Ensure message appears after item card
-  // Incase another module hooks this, it may get called after this hook
+  // Incase another module hooks this (like Ready Set Roll), that message may be printed after this
   setTimeout(() => {
     ChatMessage.create({
       content: msg,
@@ -81,5 +103,5 @@ Hooks.on("dnd5e.useItem", async (item: any) => {
     }).catch((e) => {
       throw e;
     });
-  }, 50);
+  }, 100);
 });
