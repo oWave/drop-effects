@@ -16,8 +16,6 @@ jobs:
 
     - run: |
         yarn install
-        yarn run lint
-        yarn run tsc
         yarn run --production build
 
 
