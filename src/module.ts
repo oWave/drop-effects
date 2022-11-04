@@ -15,6 +15,24 @@ function tokenAtPosition(x: number, y: number) {
     });
 }
 
+function handleItem(item: Item) {
+  let effects = item.effects.filter((e) => !e.transfer);
+
+  if (game.settings.get("drop-effects", "apply-self")) {
+    const selfEffects = effects.filter(
+      (e) => e.flags?.dae?.selfTargetAlways === true
+    );
+    effects = effects.filter((e) => e.flags?.dae?.selfTargetAlways !== true);
+
+    item.actor?.createEmbeddedDocuments(
+      "ActiveEffect",
+      selfEffects.map((e) => e.clone({ origin: null }))
+    );
+  }
+
+  return effects;
+}
+
 Hooks.once("setup", () => {
   game.settings.register("drop-effects", "show-effects-on-item-roll", {
     default: true,
@@ -33,6 +51,33 @@ Hooks.once("setup", () => {
     name: "Auto apply effects marked as apply to self",
     hint: "Requires DAE. Enable 'Apply to self when item is rolled' in the effect config to auto apply",
   });
+
+  if (game.modules.has("ready-set-roll-5e") && game.modules.get("ready-set-roll-5e")?.active)
+    Hooks.on("rsr5e.render", (data) => {
+      const item = data.item;
+      const effects = handleItem(item);
+      const msg = effects
+        .map(({ uuid, label }) => `<p>@UUID[${uuid}]{${label}}</p>`)
+        .join("");
+
+      data.templates.splice(data.templates.length-1, 0, `<div style="border-top: 2px groove #FFF; padding-top: 2px; margin-top: 5px; display: flex; flex-wrap: wrap; column-gap: 5px;">${msg}</div>`);
+    });
+  else
+    Hooks.on("dnd5e.useItem", (item) => {
+      const effects = handleItem(item);
+      const msg = effects
+        .map(({ uuid, label }) => `<p>@UUID[${uuid}]{${label}}</p>`)
+        .join("");
+
+      setTimeout(() => {
+        ChatMessage.create({
+          content: msg,
+          speaker: { alias: "Effects" },
+        }).catch((e) => {
+          throw e;
+        });
+      }, 100);
+    });
 });
 
 Hooks.on("dropCanvasData", async (_canvas, data) => {
@@ -69,39 +114,4 @@ Hooks.on("dropCanvasData", async (_canvas, data) => {
       withoutOrigin,
     ]);
   }
-});
-
-Hooks.on("dnd5e.useItem", async (item: any) => {
-  if (!game.settings.get("drop-effects", "show-effects-on-item-roll")) return;
-
-  let effects: any[] = item.effects.filter((e) => !e.transfer);
-
-  if (game.settings.get("drop-effects", "apply-self")) {
-    const selfEffects = effects.filter(
-      (e) => e.flags?.dae?.selfTargetAlways === true
-    );
-    effects = effects.filter((e) => e.flags?.dae?.selfTargetAlways !== true);
-
-    item.actor?.createEmbeddedDocuments(
-      "ActiveEffect",
-      selfEffects.map((e) => e.clone({ origin: null }))
-    );
-  }
-
-  if (!effects.length) return;
-
-  const msg = effects
-    .map(({ uuid, label }) => `<p>@UUID[${uuid}]{${label}}</p>`)
-    .join("");
-
-  // Ensure message appears after item card
-  // Incase another module hooks this (like Ready Set Roll), that message may be printed after this
-  setTimeout(() => {
-    ChatMessage.create({
-      content: msg,
-      speaker: { alias: "Effects" },
-    }).catch((e) => {
-      throw e;
-    });
-  }, 100);
 });
