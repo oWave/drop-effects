@@ -1,5 +1,9 @@
-import { Document } from "@league-of-foundry-developers/foundry-vtt-types/src/foundry/common/abstract/module.mjs";
-import { ActiveEffectData } from "@league-of-foundry-developers/foundry-vtt-types/src/foundry/common/data/module.mjs";
+
+let s: any | null = null
+Hooks.once("socketlib.ready", () => {
+	s = socketlib.registerModule("drop-effects");
+	s.register("applyEffect", applyEffect);
+});
 
 function tokenAtPosition(x: number, y: number) {
   return canvas?.tokens?.placeables
@@ -52,7 +56,26 @@ Hooks.once("setup", () => {
     hint: "Requires DAE. Enable 'Apply to self when item is rolled' in the effect config to auto apply",
   });
 
-  if (game.modules.has("ready-set-roll-5e") && game.modules.get("ready-set-roll-5e")?.active)
+  const roles: Record<number, string> = {} ;
+  roles[CONST.USER_ROLES.PLAYER] = "Player";
+  roles[CONST.USER_ROLES.TRUSTED] = "Trusted Player";
+  roles[CONST.USER_ROLES.ASSISTANT] = "Assistant GM";
+  roles[CONST.USER_ROLES.GAMEMASTER] = "Game Master";
+
+  game.settings.register("drop-effects", "effectsPermission", {
+    type: Number,
+    scope: "world",
+    config: true,
+    name: "Allow players to create effects",
+    hint: "Minimum permission to allow users to create effects on tokens they don't own.",
+    choices: roles,
+    default: CONST.USER_ROLES.GAMEMASTER,
+  });
+
+  if (
+    game.modules.has("ready-set-roll-5e") &&
+    game.modules.get("ready-set-roll-5e")?.active
+  )
     Hooks.on("rsr5e.render", (data) => {
       const item = data.item;
       const effects = handleItem(item);
@@ -60,7 +83,11 @@ Hooks.once("setup", () => {
         .map(({ uuid, label }) => `<p>@UUID[${uuid}]{${label}}</p>`)
         .join("");
 
-      data.templates.splice(data.templates.length-1, 0, `<div style="border-top: 2px groove #FFF; padding-top: 2px; margin-top: 5px; display: flex; flex-wrap: wrap; column-gap: 5px;">${msg}</div>`);
+      data.templates.splice(
+        data.templates.length - 1,
+        0,
+        `<div style="border-top: 2px groove #FFF; padding-top: 2px; margin-top: 5px; display: flex; flex-wrap: wrap; column-gap: 5px;">${msg}</div>`
+      );
     });
   else
     Hooks.on("dnd5e.useItem", (item) => {
@@ -80,38 +107,30 @@ Hooks.once("setup", () => {
     });
 });
 
+async function applyEffect(tokenId: string, effectId: string) {
+  const effect = await fromUuid(effectId)
+  const actor = (await fromUuid(tokenId))?.actor
+  if (!effect || !actor) return
+
+  // Remove effect origin
+  // Otherwise effect will not be applied, since source item is not equipped by target
+  const withoutOrigin = await effect.clone({ origin: null });
+  if (!withoutOrigin) return;
+
+  await actor.createEmbeddedDocuments("ActiveEffect", [
+    // @ts-expect-error idk
+    withoutOrigin,
+  ]);
+}
+
 Hooks.on("dropCanvasData", async (_canvas, data) => {
   if (data.type == "ActiveEffect") {
-    if (
-      !data.uuid &&
-      data.effectName &&
-      game.modules.has("dfreds-convenient-effects")
-    ) {
-      const token = tokenAtPosition(data.x as number, data.y as number);
-      if (!token) return;
-      // @ts-expect-error dfreds should exists since module is loaded
-      await game.dfreds.effectInterface.addEffect({
-        effectName: data.effectName,
-        uuid: token.actor?.uuid,
-      });
-      return;
-    }
-
-    const effect: Document<ActiveEffectData> | null = await fromUuid(
-      data.uuid as string
-    );
-    if (!effect) return;
     const token = tokenAtPosition(data.x as number, data.y as number);
-    if (!token) return;
+    if (!token || !token.actor) return;
 
-    // Remove effect origin
-    // Otherwise effect will not be applied, since source item is not equipped by target
-    const withoutOrigin = await effect.clone({ origin: null });
-    if (!withoutOrigin) return;
+    if (game.user?.isGM || token.actor.isOwner) return applyEffect(token.actor.uuid, data.uuid as string)
+    if (game.user && game.user.permission > game.settings.get("drop-effects", "effectsPermission")) return s.executeAsGM("applyEffect", token.document.uuid, data.uuid)
 
-    token.actor?.createEmbeddedDocuments("ActiveEffect", [
-      // @ts-expect-error idk
-      withoutOrigin,
-    ]);
+    ui.notifications.error("Missing permission to apply effect to target token")
   }
 });
