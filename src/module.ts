@@ -1,8 +1,7 @@
-
-let s: any | null = null
+let s: any | null = null;
 Hooks.once("socketlib.ready", () => {
-	s = socketlib.registerModule("drop-effects");
-	s.register("applyEffect", applyEffect);
+  s = socketlib.registerModule("drop-effects");
+  s.register("applyEffect", applyEffect);
 });
 
 function tokenAtPosition(x: number, y: number) {
@@ -56,7 +55,7 @@ Hooks.once("setup", () => {
     hint: "Requires DAE. Enable 'Apply to self when item is rolled' in the effect config to auto apply",
   });
 
-  const roles: Record<number, string> = {} ;
+  const roles: Record<number, string> = {};
   roles[CONST.USER_ROLES.PLAYER] = "Player";
   roles[CONST.USER_ROLES.TRUSTED] = "Trusted Player";
   roles[CONST.USER_ROLES.ASSISTANT] = "Assistant GM";
@@ -108,19 +107,16 @@ Hooks.once("setup", () => {
 });
 
 async function applyEffect(tokenId: string, effectId: string) {
-  const effect = await fromUuid(effectId)
-  const actor = (await fromUuid(tokenId))?.actor
-  if (!effect || !actor) return
+  const effect = await fromUuid(effectId);
+  const actor = (await fromUuid(tokenId))?.actor;
+  if (!effect || !actor) return;
 
   // Remove effect origin
   // Otherwise effect will not be applied, since source item is not equipped by target
   const withoutOrigin = await effect.clone({ origin: null });
   if (!withoutOrigin) return;
 
-  await actor.createEmbeddedDocuments("ActiveEffect", [
-    // @ts-expect-error idk
-    withoutOrigin,
-  ]);
+  await actor.createEmbeddedDocuments("ActiveEffect", [withoutOrigin]);
 }
 
 Hooks.on("dropCanvasData", async (_canvas, data) => {
@@ -128,9 +124,17 @@ Hooks.on("dropCanvasData", async (_canvas, data) => {
     const token = tokenAtPosition(data.x as number, data.y as number);
     if (!token || !token.actor) return;
 
-    if (game.user?.isGM || token.actor.isOwner) return applyEffect(token.actor.uuid, data.uuid as string)
-    if (game.user && game.user.permission > game.settings.get("drop-effects", "effectsPermission")) return s.executeAsGM("applyEffect", token.document.uuid, data.uuid)
+    if (game.user?.isGM || token.actor.isOwner)
+      return applyEffect(token.document.uuid, data.uuid as string);
+    if (
+      game.user &&
+      game.user.permission >
+        game.settings.get("drop-effects", "effectsPermission")
+    )
+      return s.executeAsGM("applyEffect", token.document.uuid, data.uuid);
 
-    ui.notifications.error("Missing permission to apply effect to target token")
+    ui.notifications.error(
+      "Missing permission to apply effect to target token"
+    );
   }
 });
